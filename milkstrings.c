@@ -9,9 +9,11 @@
 
 
 #include <stdio.h>
+#include <stddef.h>
 #include <malloc.h>
 #include <stdarg.h>
-#include "strings.h"
+#include <string.h>
+#include <stdlib.h>
 
 typedef  char * tXt ;
 
@@ -44,6 +46,8 @@ int mini(int x,  int y){
 // all string are allocated in this memory pool
 char txtpool[txtPOOLSIZE] ;
 int txtpoolidx = 0 ;
+
+//fix the poolidx
 void txtFixpool(void) {
   txtpool[txtpoolidx++] = 0 ;
   if (txtpoolidx > txtPOOLSIZE-txtMAXLEN-1) {
@@ -74,6 +78,7 @@ int txtPos(tXt src, tXt zk) {
 
 char txtErrorBuf[txtMAXLEN] ;
 
+
 // stitching unlimited number of strings. Last parameter should be NULL
 tXt txtConcat(tXt tx1,...) {
   tXt rslt = &txtpool[txtpoolidx] ;
@@ -97,6 +102,17 @@ tXt txtConcat(tXt tx1,...) {
   return rslt ;
 }
 
+// check for error
+int txtAnyError(void) {
+  return txtErrorBuf[0] != 0 ; }
+
+//retrieve and reset error message
+tXt txtLastError(void) {
+  tXt rslt = txtConcat(txtErrorBuf,NULL) ;
+  txtErrorBuf[0] = 0 ; 
+  return rslt ; }
+
+
 //convert to uppercase
 tXt txtUpcase(tXt s) {
   tXt rslt = txtConcat(s,NULL) ;
@@ -115,10 +131,6 @@ tXt txtC(char c) {
   return rslt ; }
 
 
-tXt txtLastError(void) {
-  tXt rslt = txtConcat(txtErrorBuf,NULL) ;
-  txtErrorBuf[0] = 0 ; 
-  return rslt ; }
 
 // create string with standard printf format spec
 tXt txtPrintf(const char* format, ...)
@@ -148,6 +160,7 @@ tXt txtEat(tXt * src,char delim) {
   *src = &((*src)[mini(p+1,strlen(*src))]) ;
   return rslt ; }
 
+// reverse a string
 tXt txtFlip(tXt s) {
   tXt rslt = txtConcat(s,NULL) ;
   char * p = &rslt[strlen(s)-1] ;
@@ -239,9 +252,8 @@ int main(int argc, char * argv[]) {
   refridge(&s,txtConcat(txtSub(s,4,7),",123",NULL)) ; // update string in fridge ;
   printf("num = %d s = %s \n",num,s) ;
   clearfridge(s) ;          // cleanup heap
-  tXt errm = txtLastError() ; // check for errors 
-  if (errm[0])
-    printf("%s\n",errm) ;
+  if (txtAnyError())  //check for errors
+    printf("%s\n",txtLastError()) ;
   }
   
 /* output should look like:
