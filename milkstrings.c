@@ -13,7 +13,7 @@
 #include <stdarg.h>
 #include "strings.h"
 
-#define tXt char *
+typedef  char * tXt ;
 
 
 //choose the following numbers wisely depending on available memory
@@ -72,6 +72,7 @@ int txtPos(tXt src, tXt zk) {
   else
     return p-src ; }
 
+char txtErrorBuf[txtMAXLEN] ;
 
 // stitching unlimited number of strings. Last parameter should be NULL
 tXt txtConcat(tXt tx1,...) {
@@ -87,6 +88,7 @@ tXt txtConcat(tXt tx1,...) {
     memcpy(&txtpool[txtpoolidx],x,len) ;
     txtpoolidx += len ;
     if (txtpoolidx >= txtlim) {
+      sprintf(txtErrorBuf,"txtConcat length overflow") ;
       x = NULL ; }
     else
       x = va_arg(ap,tXt) ; }
@@ -112,6 +114,12 @@ tXt txtC(char c) {
   txtFixpool() ;
   return rslt ; }
 
+
+tXt txtLastError(void) {
+  tXt rslt = txtConcat(txtErrorBuf,NULL) ;
+  txtErrorBuf[0] = 0 ; 
+  return rslt ; }
+
 // create string with standard printf format spec
 tXt txtPrintf(const char* format, ...)
 {
@@ -120,7 +128,7 @@ tXt txtPrintf(const char* format, ...)
     char buf[txtMAXLEN] ;
     int n = vsnprintf(buf,txtMAXLEN-1,format, argList);
     if (n >= txtMAXLEN)
-      fprintf(stderr,"txtPrintf overflow (%d >= %d)",n,txtMAXLEN) ;
+      sprintf(txtErrorBuf,"txtPrintf overflow (%d >= %d)",n,txtMAXLEN) ;
     va_end(argList);
     return txtConcat(buf,NULL) ;
 }
@@ -161,7 +169,7 @@ void clearfridge(tXt s) {
   if (s != NULL && s != &nullchar) {
     int fpod = strlen(s)+ 1 ;
     if (s[fpod] != 'F')
-      fprintf(stderr,"false unfridge (%s)\n",s) ;
+      sprintf(txtErrorBuf,"false unfridge (%s)\n",s) ;
     else {
       s[fpod] = ' ' ;
       free(s) ; } }
@@ -228,13 +236,19 @@ int main(int argc, char * argv[]) {
   num = txtPos(s,"987") ; // find position of substring
   printf("num = %d s = %s \n",num,s) ;
   s = fridge(s) ;           // preserve string for long time use
+  refridge(&s,txtConcat(txtSub(s,4,7),",123",NULL)) ; // update string in fridge ;
+  printf("num = %d s = %s \n",num,s) ;
   clearfridge(s) ;          // cleanup heap
+  tXt errm = txtLastError() ; // check for errors 
+  if (errm[0])
+    printf("%s\n",errm) ;
   }
   
 /* output should look like:
 num = 321 s = 456,789
 num = 321 s = 456,789,321
 num = 19 s = 456,789,321<-->123,987,654
+num = 19 s = 789,321,123
 */  
   
 #endif
