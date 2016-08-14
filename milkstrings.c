@@ -19,8 +19,10 @@ typedef  char * tXt ;
 
 
 //choose the following numbers wisely depending on available memory
-#define txtPOOLSIZE 8192 // available memory for strings
+#ifndef txtPOOLSIZE
+#define txtPOOLSIZE 32768 // available memory for strings
 #define txtMAXLEN 256   // max string length
+#endif
 #define txtNOTFOUND 9999
 
 
@@ -68,6 +70,23 @@ tXt txtSub(tXt tx,int bpos,int len) {
   txtFixpool() ;
   return rslt ; }
 
+tXt txtDelete(tXt tx,int bpos,int len) {
+  tXt rslt = &txtpool[txtpoolidx] ;
+  int ln = strlen(tx) ;
+  int n ;
+  if (bpos < 0)
+    bpos = lim(ln+bpos-1,0,ln-1) ;
+  if (bpos > 0) {
+    memcpy(rslt,tx,bpos) ;
+    txtpoolidx+= bpos ; }
+  if (bpos+len < ln) {
+    memcpy(&rslt[bpos],&tx[bpos+len],ln-len-bpos) ;
+    txtpoolidx += ln-bpos-len ; }
+  txtFixpool() ;
+  return rslt ; }
+  
+
+
 // search position in string
 int txtPos(tXt src, tXt zk) {
   char * p = strstr(src,zk) ;
@@ -93,7 +112,7 @@ tXt txtConcat(tXt tx1,...) {
     memcpy(&txtpool[txtpoolidx],x,len) ;
     txtpoolidx += len ;
     if (txtpoolidx >= txtlim) {
-      sprintf(txtErrorBuf,"txtConcat length overflow") ;
+      snprintf(txtErrorBuf,txtMAXLEN,"txtConcat length overflow") ;
       x = NULL ; }
     else
       x = va_arg(ap,tXt) ; }
@@ -139,8 +158,8 @@ tXt txtPrintf(const char* format, ...)
     va_start(argList, format);
     char buf[txtMAXLEN] ;
     int n = vsnprintf(buf,txtMAXLEN-1,format, argList);
-    if (n >= txtMAXLEN)
-      sprintf(txtErrorBuf,"txtPrintf overflow (%d >= %d)",n,txtMAXLEN) ;
+    if (n >= txtMAXLEN-1)
+      snprintf(txtErrorBuf,txtMAXLEN,"txtPrintf overflow (%d >= %d)",n,txtMAXLEN) ;
     va_end(argList);
     return txtConcat(buf,NULL) ;
 }
@@ -181,8 +200,11 @@ tXt fridge(tXt s) {
 void clearfridge(tXt s) {
   if (s != NULL && s != &nullchar) {
     int fpod = strlen(s)+ 1 ;
-    if (s[fpod] != 'F')
-      sprintf(txtErrorBuf,"false unfridge (%s)\n",s) ;
+    if (s[fpod] != 'F') {
+      char part[10] ;
+      memcpy(part,s,9) ;
+      part[9] = 0 ;
+      snprintf(txtErrorBuf,txtMAXLEN,"false unfridge (%s....)\n",part) ;}
     else {
       s[fpod] = ' ' ;
       free(s) ; } }
@@ -228,17 +250,122 @@ tXt txtReplace(tXt src,tXt old,tXt nw) {
 tXt txtFromFile(FILE * fi) {
   char inbuf[txtMAXLEN] ;
   inbuf[0] = 0 ;
-  fgets(inbuf,txtMAXLEN-1,fi) ;
+  fgets(inbuf,txtMAXLEN,fi) ;
   int li = strlen(inbuf) ; 
+  if (li >= txtMAXLEN-1)
+    snprintf(txtErrorBuf,txtMAXLEN,"line of %d chars in txtFromFile()",li) ;
   if (li > 0 && inbuf[li-1]=='\n') 
     inbuf[li-1]=0 ; 
   return  txtConcat(inbuf,NULL) ; 
 }
 
-#define example
-#ifdef example
+
+#ifndef txtSKIPEXAMP
 // some example code
+  
+
+// change double slash comments to old style comments
+void oldcomment(void) {
+  FILE * fi = fopen("milkstrings.c","r") ;
+  FILE * fo = fopen("milkocomm.c","w+") ;
+  while (!feof(fi)) {
+    tXt s = txtFromFile(fi) ;
+    int p = txtPos(s,"//") ;
+    if ( p == txtNOTFOUND || (p > 0 && s[p-1] == '\"') ) 
+      fprintf(fo,"%s\n",s) ;
+    else
+      fprintf(fo,"%s*/\n",txtReplace(s,"//","/*")) ; }
+  fclose(fi) ;
+  fclose(fo) ;
+}
+
+
+
+typedef struct tWord {
+  tXt tx ;
+  int count ;
+  struct tWord *   next ; } tWord;
+typedef struct tWord *pWord;
+
+void qwsort(pWord * pp1) {
+  pWord p2,p3,p4,tail ;
+  int choice ;
+  if ((*pp1) && (*pp1)->next) {
+    p2 = p3 = *pp1 ;
+    while (p2) {
+      p2 = p2->next ;
+      if (p2) {
+        p2 = p2->next ;
+        if (p2)
+          p3 = p3->next ;
+        }}
+    p2 = p3->next ;
+    p3->next = NULL ;
+    qwsort(pp1) ;
+    qwsort(&p2) ;
+    p3 = *pp1 ;
+    tail = NULL ;
+    while (p2 != NULL || p3 != NULL) {
+      if (p2 != NULL && p3 != NULL)
+        choice = strcmp(p2->tx,p3->tx)<0 ;
+      else  
+        choice = (p2 != NULL) ;
+      if (!choice) {
+        p4 = p2 ;p2 = p3 ; p3 = p4 ; }
+      if (tail) 
+        tail->next = p2 ;
+      else 
+        *pp1 = p2 ;
+      tail = p2 ;
+      p2 = p2->next ; } }
+}
+        
+    
+    
+
+void wordfrequency(void) {
+  pWord np,allword ;
+  allword = NULL ;
+  FILE * fi = fopen("sample.txt","r") ;
+  if (fi == NULL)
+    return ;
+  while (!feof(fi)) {
+    tXt lin = txtUpcase(txtTrim(txtFromFile(fi))) ;
+    while (lin[0]) {
+      tXt wrd = txtTrim(txtEat(&lin,' ')) ;
+      np = allword ;
+      while (np) {
+        if (strcmp(np->tx,wrd) == 0) {
+          np->count++ ;
+          wrd = "" ; 
+          np = NULL ;
+          }
+        else
+          np = np->next ;}
+      if (wrd[0]) {
+        np = (pWord) malloc(sizeof(tWord)) ;
+        np->tx = fridge(wrd) ;
+        np->count = 1 ;
+        np->next = allword ;
+        allword = np ; } } }
+  qwsort(&allword) ;      
+  while (allword) {
+    printf("%5d %s\n",allword->count,unfridge(allword->tx)) ;
+    np = allword ;
+    allword = allword->next ;
+    free (np) ; }
+}
+      
+
+
+
 int main(int argc, char * argv[]) {
+  /* oldcomment() ;*/
+  /* wordfrequency() ;*/
+  if (txtAnyError()) { //check for errors
+    printf("%s\n",txtLastError()) ;
+    return 1 ; }
+  return 0 ;
   tXt s = "123,456,789" ;
   s = txtReplace(s,"123","321") ; // replace 123 by 321
   int num = atoi(txtEat(&s,',')) ; // pick the first number
@@ -252,8 +379,11 @@ int main(int argc, char * argv[]) {
   refridge(&s,txtConcat(txtSub(s,4,7),",123",NULL)) ; // update string in fridge ;
   printf("num = %d s = %s \n",num,s) ;
   clearfridge(s) ;          // cleanup heap
-  if (txtAnyError())  //check for errors
+  printf("%s\n",txtDelete("0123456789",7,6) ) ;
+  if (txtAnyError()) { //check for errors
     printf("%s\n",txtLastError()) ;
+    return 1 ; }
+  return 0 ;
   }
   
 /* output should look like:
