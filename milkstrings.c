@@ -1,7 +1,7 @@
 //============================================================================
 // Name        : milkstrings.c
 // Author      : Aad van der Geest
-// Version     : 0
+// Version     : 0.0.1
 // Copyright   : 
 // Description : Easy strings in c limited length and lifetime
 //============================================================================
@@ -26,12 +26,16 @@ typedef  char * tXt ;
 #define txtNOTFOUND 9999
 
 
+//show 3 ints with name and value
+//#define print3int(x,y,z) printf(#x "=%d "#y "=%d "#z "=%d\n",x,y,z) ;
+
+
 #define ZeroMemory(x,y)  memset (x, 0, y)
 char nullchar = 0 ;
 #define txtEmpty &nullchar
 
 // limit an integer
-int lim(int x,int mn,int mx) {
+int limii(int x,int mn,int mx) {
   if (x > mx)
     x = mx ;
   if (x < mn)
@@ -39,15 +43,79 @@ int lim(int x,int mn,int mx) {
   return x ; }
 
 // smallest of two integers 
-int mini(int x,  int y){
+int miniii(int x,  int y){
   if (x < y)
     return x;
   else
     return y; }
 
 // all string are allocated in this memory pool
-char txtpool[txtPOOLSIZE] ;
 int txtpoolidx = 0 ;
+
+#ifdef txtHEAPPOOL
+// all strings are allocated on the heap. strings are not overwritten.
+
+
+char txtfirstpool[txtMAXLEN] ;
+char * txtpool = txtfirstpool ;
+int txtPoolLim = 0 ;
+// allocated  moor pool on the heap
+void txtNewPool(void) {
+  char * prevpool ;
+  prevpool = txtpool ;
+  txtpool = (char *) malloc(txtPOOLSIZE) ;
+  memcpy(txtpool,&prevpool,sizeof(prevpool)) ;
+  int oldidx = txtpoolidx ;
+  txtpoolidx = sizeof(prevpool) ;
+  txtPoolLim = txtPOOLSIZE-txtMAXLEN-1 ;
+ }
+
+
+// update poolidx and check for new pool needed  
+void txtFixpool(void) {
+  txtpool[txtpoolidx++] = 0 ;
+  if (txtpoolidx > txtPoolLim) 
+    txtNewPool() ; 
+}
+
+
+typedef struct txtPoolPoint {
+  int idx ;
+  char * buf ; } txtPoolPoint ;
+
+//mark a position in the textpools
+void txtMarkPoolPoint(txtPoolPoint * p) {
+  p-> idx = txtpoolidx ;
+  p->buf = txtpool ; }
+  
+  
+//rewind to position in textpool (partial garbage collection)
+void txtRewind(txtPoolPoint * p) {
+  while (txtpool != p->buf) {
+    char * nextpool ;
+    memcpy(&nextpool,txtpool,sizeof(nextpool)) ;
+    free(txtpool) ;
+    txtpool = nextpool ;} 
+  txtpoolidx = p->idx ;
+  if (txtpool == txtfirstpool)
+    txtPoolLim = 0 ;
+  else
+    txtPoolLim = txtPOOLSIZE-txtMAXLEN-1 ;
+}
+  
+//flush all allocated pools (full garbage collection) 
+void txtFlushPool(void) {
+  txtPoolPoint pp = {0,txtfirstpool} ;
+  txtRewind(&pp) ;
+ }
+
+
+
+
+#else
+// strings are stored in global data space
+
+char txtpool[txtPOOLSIZE] ;
 
 //fix the poolidx
 void txtFixpool(void) {
@@ -56,14 +124,18 @@ void txtFixpool(void) {
     txtpoolidx = 0 ; }
 }
 
+void txtFlushPool(void) {
+  txtpoolidx = 0 ; }
+
+#endif
 //substring
 tXt txtSub(tXt tx,int bpos,int len) {
   tXt rslt = &txtpool[txtpoolidx] ;
   int ln = strlen(tx) ;
   int n ;
   if (bpos < 0)
-    bpos = lim(ln+bpos-1,0,ln-1) ;
-  n = lim(strlen(tx) -bpos,0,len) ;
+    bpos = limii(ln+bpos-1,0,ln-1) ;
+  n = limii(strlen(tx) -bpos,0,len) ;
   if (n > 0)
     memcpy(&txtpool[txtpoolidx],&tx[bpos],n) ;
   txtpoolidx += n ;
@@ -75,7 +147,7 @@ tXt txtDelete(tXt tx,int bpos,int len) {
   int ln = strlen(tx) ;
   int n ;
   if (bpos < 0)
-    bpos = lim(ln+bpos-1,0,ln-1) ;
+    bpos = limii(ln+bpos-1,0,ln-1) ;
   if (bpos > 0) {
     memcpy(rslt,tx,bpos) ;
     txtpoolidx+= bpos ; }
@@ -176,8 +248,20 @@ tXt txtMalloc(int len) {
 tXt txtEat(tXt * src,char delim) {
   int p = txtPos(*src,txtC(delim)) ;
   tXt rslt = txtSub(*src,0,p) ;
-  *src = &((*src)[mini(p+1,strlen(*src))]) ;
+  *src = &((*src)[miniii(p+1,strlen(*src))]) ;
   return rslt ; }
+
+
+//grab the first part of a string
+tXt txtEats(tXt * src,tXt delims) {
+  int p = txtNOTFOUND ;
+  while (*delims)
+    p = miniii(p,txtPos(*src,txtC(*delims++))) ;
+  tXt rslt = txtSub(*src,0,p) ;
+  *src = &((*src)[miniii(p+1,strlen(*src))]) ;
+  return rslt ; }
+
+
 
 // reverse a string
 tXt txtFlip(tXt s) {
@@ -234,6 +318,19 @@ tXt txtTrim(tXt tx) {
     tx = txtSub(tx,b,e-b+1) ;
   return tx ; }
 
+// remove all from set of chars around string
+tXt txtTrims(tXt tx,tXt whites) {
+  int b = 0 ;
+  int e = strlen(tx)-1 ;
+  int ee = e ;
+  while (b <= e && strchr(whites,tx[b]) )
+    b++ ;
+  while (b <= e && strchr(whites,tx[e]))
+    e -- ;
+  if (b != 0 || e != ee)  
+    tx = txtSub(tx,b,e-b+1) ;
+  return tx ; }
+
 // replace words in string
 tXt txtReplace(tXt src,tXt old,tXt nw) {
   tXt rslt = txtEmpty ;
@@ -246,11 +343,15 @@ tXt txtReplace(tXt src,tXt old,tXt nw) {
   rslt = txtConcat(rslt,src,NULL) ;
   return rslt ; }
 
+char txtENDBUMP = 0 ;
+tXt txtEndFile = & txtENDBUMP ;
+
 //read one line from a file
 tXt txtFromFile(FILE * fi) {
   char inbuf[txtMAXLEN] ;
   inbuf[0] = 0 ;
-  fgets(inbuf,txtMAXLEN,fi) ;
+  if (fgets(inbuf,txtMAXLEN,fi) == NULL) {
+    return txtEndFile ;}
   int li = strlen(inbuf) ; 
   if (li >= txtMAXLEN-1)
     snprintf(txtErrorBuf,txtMAXLEN,"line of %d chars in txtFromFile()",li) ;
@@ -264,108 +365,67 @@ tXt txtFromFile(FILE * fi) {
 // some example code
   
 
-// change double slash comments to old style comments
-void oldcomment(void) {
-  FILE * fi = fopen("milkstrings.c","r") ;
-  FILE * fo = fopen("milkocomm.c","w+") ;
-  while (!feof(fi)) {
-    tXt s = txtFromFile(fi) ;
-    int p = txtPos(s,"//") ;
-    if ( p == txtNOTFOUND || (p > 0 && s[p-1] == '\"') ) 
-      fprintf(fo,"%s\n",s) ;
-    else
-      fprintf(fo,"%s*/\n",txtReplace(s,"//","/*")) ; }
-  fclose(fi) ;
-  fclose(fo) ;
-}
 
-
-
-typedef struct tWord {
+typedef struct tLemma {
   tXt tx ;
   int count ;
-  struct tWord *   next ; } tWord;
-typedef struct tWord *pWord;
+   } tLemma;
+typedef struct tLemma *pLemma;
 
-void qwsort(pWord * pp1) {
-  pWord p2,p3,p4,tail ;
-  int choice ;
-  if ((*pp1) && (*pp1)->next) {
-    p2 = p3 = *pp1 ;
-    while (p2) {
-      p2 = p2->next ;
-      if (p2) {
-        p2 = p2->next ;
-        if (p2)
-          p3 = p3->next ;
-        }}
-    p2 = p3->next ;
-    p3->next = NULL ;
-    qwsort(pp1) ;
-    qwsort(&p2) ;
-    p3 = *pp1 ;
-    tail = NULL ;
-    while (p2 != NULL || p3 != NULL) {
-      if (p2 != NULL && p3 != NULL)
-        choice = strcmp(p2->tx,p3->tx)<0 ;
-      else  
-        choice = (p2 != NULL) ;
-      if (!choice) {
-        p4 = p2 ;p2 = p3 ; p3 = p4 ; }
-      if (tail) 
-        tail->next = p2 ;
-      else 
-        *pp1 = p2 ;
-      tail = p2 ;
-      p2 = p2->next ; } }
+
+int wordcompare (const void * a, const void * b)
+{
+  int rslt = ((pLemma)a)->count -((pLemma)b)->count ;
+  if (rslt == 0)
+    rslt = strcmp(txtUpcase(((pLemma)a)->tx) ,txtUpcase(((pLemma)b)->tx)) ;
+  return rslt ;
 }
-        
-    
-    
+
+
 
 void wordfrequency(void) {
-  pWord np,allword ;
-  allword = NULL ;
   FILE * fi = fopen("sample.txt","r") ;
+  tXt delims = " \t[]().-,?\"" ;
   if (fi == NULL)
     return ;
-  while (!feof(fi)) {
-    tXt lin = txtUpcase(txtTrim(txtFromFile(fi))) ;
+  int nrlemma = 32 ;
+  int nextlemma = 0 ;
+  int i ;
+  tXt lastlin ;
+  pLemma wlist = (pLemma) malloc(nrlemma*sizeof(tLemma)) ;
+  tXt rlin = txtFromFile(fi) ;
+  while (rlin != txtEndFile) {
+    tXt lin = txtTrims(rlin,delims) ;
     while (lin[0]) {
-      tXt wrd = txtTrim(txtEat(&lin,' ')) ;
-      np = allword ;
-      while (np) {
-        if (strcmp(np->tx,wrd) == 0) {
-          np->count++ ;
-          wrd = "" ; 
-          np = NULL ;
-          }
-        else
-          np = np->next ;}
+      tXt wrd = txtTrims(txtEats(&lin,delims) ,delims ) ;
       if (wrd[0]) {
-        np = (pWord) malloc(sizeof(tWord)) ;
-        np->tx = fridge(wrd) ;
-        np->count = 1 ;
-        np->next = allword ;
-        allword = np ; } } }
-  qwsort(&allword) ;      
-  while (allword) {
-    printf("%5d %s\n",allword->count,unfridge(allword->tx)) ;
-    np = allword ;
-    allword = allword->next ;
-    free (np) ; }
+        for(i=(0);i<=(nextlemma-1);i++) {
+          if (strcmp(wlist[i].tx,wrd) == 0) {
+            wlist[i].count++ ;
+            i = nextlemma+100 ; } }
+        if (i < nextlemma+10) {
+          if (nextlemma == nrlemma) {
+            nrlemma += 32 ;
+            wlist = realloc(wlist,nrlemma*sizeof(tLemma)) ; }
+          wlist[nextlemma].tx = fridge(wrd) ;
+          wlist[nextlemma++].count = 1 ; } } }
+    rlin = txtFromFile(fi) ; } 
+  fclose(fi) ;
+  qsort(wlist,nextlemma,sizeof(tLemma),wordcompare) ;
+  for (i = 0 ; i <= nextlemma-1;i++)
+    printf("%5d %s\n",wlist[i].count,unfridge(wlist[i].tx)) ;
+  free(wlist) ;
+  printf("%d words\n",nextlemma) ;
 }
-      
-
 
 
 int main(int argc, char * argv[]) {
   /* oldcomment() ;*/
-  /* wordfrequency() ;*/
+  wordfrequency() ;
   if (txtAnyError()) { //check for errors
     printf("%s\n",txtLastError()) ;
-    return 1 ; }
-  return 0 ;
+    //return 1 ; 
+    }
   tXt s = "123,456,789" ;
   s = txtReplace(s,"123","321") ; // replace 123 by 321
   int num = atoi(txtEat(&s,',')) ; // pick the first number
@@ -379,13 +439,12 @@ int main(int argc, char * argv[]) {
   refridge(&s,txtConcat(txtSub(s,4,7),",123",NULL)) ; // update string in fridge ;
   printf("num = %d s = %s \n",num,s) ;
   clearfridge(s) ;          // cleanup heap
-  printf("%s\n",txtDelete("0123456789",7,6) ) ;
   if (txtAnyError()) { //check for errors
     printf("%s\n",txtLastError()) ;
     return 1 ; }
   return 0 ;
   }
-  
+      
 /* output should look like:
 num = 321 s = 456,789
 num = 321 s = 456,789,321
